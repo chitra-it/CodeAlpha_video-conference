@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>VideoCollab — demo (single-file)</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--accent:#06b6d4;--muted:#94a3b8;color-scheme:dark}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial;background:linear-gradient(180deg,#071026 0%,#071a2a 100%);color:#e6eef6}
+    header{display:flex;gap:1rem;align-items:center;padding:0.75rem 1rem;border-bottom:1px solid rgba(255,255,255,0.03)}
+    header h1{font-size:1rem;margin:0}
+    .layout{display:grid;grid-template-columns:320px 1fr 360px;gap:1rem;padding:1rem;align-items:start}
+    .card{background:var(--card);border-radius:12px;padding:0.8rem;box-shadow:0 6px 18px rgba(2,6,23,0.6)}
+    .controls{display:flex;gap:.5rem;flex-wrap:wrap}
+    button{background:transparent;border:1px solid rgba(255,255,255,0.06);padding:.5rem .6rem;border-radius:8px;color:inherit;cursor:pointer}
+    button.primary{background:linear-gradient(90deg,var(--accent),#60a5fa);border:none;color:#012}
+    #videos{display:flex;flex-wrap:wrap;gap:.5rem}
+    video{background:#000;border-radius:8px;width:260px;height:150px;object-fit:cover}
+    .whiteboard canvas{border-radius:8px;background:white;width:100%;height:400px}
+    .files-list{max-height:240px;overflow:auto;margin-top:.5rem}
+    .muted{color:var(--muted);font-size:.9rem}
+    footer{padding:0.75rem 1rem;border-top:1px solid rgba(255,255,255,0.03);text-align:center;color:var(--muted);font-size:.85rem}
+    .hidden{display:none}
+    input[type=file]{display:none}
+    .small{font-size:.85rem}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>VideoCollab — demo (front-end)</h1>
+    <div class="muted">Features: multi-user video, screen-share, file encrypt+transfer, whiteboard, auth UI</div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: Auth & Room controls -->
+    <section class="card">
+      <h3>Authentication</h3>
+      <div class="muted small">This demo provides UI hooks for authentication. Plug your secure backend (JWT/OAuth) here.</div>
+      <form id="authForm">
+        <label class="small">Display name</label>
+        <input id="displayName" required value="Guest" style="width:100%;padding:.5rem;margin:.4rem 0;border-radius:8px;border:1px solid rgba(255,255,255,0.05);background:transparent;color:inherit">
+        <label class="small">Room name</label>
+        <input id="roomId" required value="test-room" style="width:100%;padding:.5rem;margin:.4rem 0;border-radius:8px;border:1px solid rgba(255,255,255,0.05);background:transparent;color:inherit">
+        <div style="display:flex;gap:.5rem;margin-top:.5rem">
+          <button id="joinBtn" class="primary">Join Room</button>
+          <button id="leaveBtn" type="button">Leave</button>
+        </div>
+      </form>
+
+      <hr style="margin:.75rem 0;border-color:rgba(255,255,255,.03)">
+
+      <h4>Local Controls</h4>
+      <div class="controls">
+        <button id="btnToggleAudio">Toggle Mic</button>
+        <button id="btnToggleVideo">Toggle Camera</button>
+        <button id="btnShareScreen">Share Screen</button>
+        <label title="Encrypt file before sending" style="display:inline-block">
+          <input id="fileInput" type="file">
+          <button id="btnChooseFile" type="button">Upload File</button>
+        </label>
+      </div>
+
+      <div class="muted small" style="margin-top:.6rem">Local status: <span id="localStatus">Not connected</span></div>
+    </section>
+
+    <!-- MIDDLE: Video + Whiteboard -->
+    <section>
+      <div class="card" style="margin-bottom:1rem">
+        <h3>Video & Screens</h3>
+        <div id="videos" aria-live="polite">
+          <video id="localVideo" autoplay muted playsinline></video>
+        </div>
+      </div>
+
+      <div class="card whiteboard">
+        <h3>Whiteboard</h3>
+        <div style="display:flex;gap:.5rem;margin-bottom:.5rem;align-items:center">
+          <label class="small">Tool</label>
+          <select id="wbTool"><option value="pen">Pen</option><option value="eraser">Eraser</option></select>
+          <label class="small">Size</label>
+          <input id="wbSize" type="range" min="1" max="40" value="4">
+          <button id="wbClear">Clear</button>
+          <button id="wbSave">Save PNG</button>
+        </div>
+        <canvas id="whiteboard" width="1200" height="600"></canvas>
+        <div class="muted small">Whiteboard strokes are shared across peers via data channels (demo)</div>
+      </div>
+    </section>
+
+    <!-- RIGHT: Chat / Files -->
+    <aside class="card">
+      <h3>Chat & Files</h3>
+      <div id="chat" style="height:220px;overflow:auto;border-radius:8px;padding:.5rem;background:rgba(255,255,255,0.01)"></div>
+      <div style="margin-top:.5rem;display:flex;gap:.5rem">
+        <input id="chatInput" placeholder="Type message" style="flex:1;padding:.5rem;border-radius:8px;border:1px solid rgba(255,255,255,0.05);background:transparent;color:inherit">
+        <button id="sendChat">Send</button>
+      </div>
+
+      <hr style="margin:.7rem 0;border-color:rgba(255,255,255,.03)">
+      <h4>Files</h4>
+      <div class="files-list" id="filesList"></div>
+      <div class="muted small" style="margin-top:.5rem">Files are encrypted locally before upload in this demo using Web Crypto API (AES-GCM). Provide a secure key exchange (e.g. via your auth server or E2EE key-sharing) for real security.</div>
+    </aside>
+  </main>
+
+  <footer>Demo front-end only. To make it a working product you need a secure server (signaling/auth/storage) — I can provide Node/Express + Socket.io server code if you want.</footer>
+
+  <script>
+    // --------------------- CONFIG (edit these to match your backend) ---------------------
+    // Signaling server (socket.io) URL:
+    const SIGNALING_SERVER = 'https://YOUR_SIGNALLING_SERVER'; // replace with your server
+
+    // STUN/TURN servers list (production requires TURN servers)
+    const ICE_SERVERS = [{urls: 'stun:stun.l.google.com:19302'}];
+
+    // -----------------------------------------------------------------------------------
+
+    // UI elements
+    const joinBtn = document.getElementById('joinBtn');
+    const leaveBtn = document.getElementById('leaveBtn');
+    const displayNameInput = document.getElementById('displayName');
+    const roomInput = document.getElementById('roomId');
+    const localVideo = document.getElementById('localVideo');
+    const videosEl = document.getElementById('videos');
+    const localStatus = document.getElementById('localStatus');
+
+    const btnToggleAudio = document.getElementById('btnToggleAudio');
+    const btnToggleVideo = document.getElementById('btnToggleVideo');
+    const btnShareScreen = document.getElementById('btnShareScreen');
+
+    const fileInput = document.getElementById('fileInput');
+    const btnChooseFile = document.getElementById('btnChooseFile');
+    const filesList = document.getElementById('filesList');
+
+    const chatEl = document.getElementById('chat');
+    const chatInput = document.getElementById('chatInput');
+    const sendChat = document.getElementById('sendChat');
+
+    const whiteboard = document.getElementById('whiteboard');
+    const wbTool = document.getElementById('wbTool');
+    const wbSize = document.getElementById('wbSize');
+    const wbClear = document.getElementById('wbClear');
+    const wbSave = document.getElementById('wbSave');
+
+    // App state
+    let socket = null; // socket.io connection
+    let localStream = null;
+    let peers = {}; // peerId -> {pc, dc}
+    let roomId = null;
+
+    // Simple helper for UI logs
+    function appendChat(text, cls){
+      const div = document.createElement('div');
+      div.textContent = text;
+      if(cls) div.className = cls;
+      chatEl.appendChild(div);
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }
+
+    // ------- Local media capture -------
+    async function startLocalMedia(){
+      try{
+        localStream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}}, audio:true});
+        localVideo.srcObject = localStream;
+        localStatus.textContent = 'Microphone & Camera active';
+      }catch(err){
+        console.error('media error',err);
+        localStatus.textContent = 'No media: ' + err.message;
+      }
+    }
+
+    // ------- Signaling via socket.io (minimal) -------
+    function connectSignaling(){
+      if(!SIGNALING_SERVER || SIGNALING_SERVER.includes('YOUR_SIGNALLING_SERVER')){
+        alert('Please set SIGNALING_SERVER at top of file to your signaling server URL to use multi-user features.');
+        return null;
+      }
+      // load socket.io client dynamically
+      if(typeof io === 'undefined'){
+        const s = document.createElement('script');
+        s.src = SIGNALING_SERVER + '/socket.io/socket.io.js';
+        document.head.appendChild(s);
+      }
+      // small retry wrapper until socket.io lib loads
+      return new Promise((resolve)=>{
+        const tryConnect = ()=>{
+          if(typeof io !== 'undefined'){
+            socket = io(SIGNALING_SERVER, { transports: ['websocket'] });
+            resolve(socket);
+          }else{
+            setTimeout(tryConnect,200);
+          }
+        };
+        tryConnect();
+      });
+    }
+
+    // ------- Peer connection helpers -------
+    function createPeerConnection(peerId, isInitiator=false){
+      const pc = new RTCPeerConnection({iceServers: ICE_SERVERS});
+      // add local tracks
+      if(localStream){
+        for(const t of localStream.getTracks()) pc.addTrack(t, localStream);
+      }
+      // remote track handling
+      const remoteVideo = document.createElement('video');
+      remoteVideo.id = 'video_'+peerId;
+      remoteVideo.autoplay = true; remoteVideo.playsInline = true;
+      pc.ontrack = (ev)=>{
+        if(remoteVideo.srcObject !== ev.streams[0]) remoteVideo.srcObject = ev.streams[0];
+      };
+      videosEl.appendChild(remoteVideo);
+
+      // data channel (for chat, whiteboard, file signalling)
+      let dc;
+      if(isInitiator){
+        dc = pc.createDataChannel('data');
+        setupDataChannel(peerId, dc);
+      }else{
+        pc.ondatachannel = (e)=>{ dc = e.channel; setupDataChannel(peerId, dc); };
+      }
+
+      pc.onicecandidate = (event)=>{
+        if(event.candidate){
+          socket.emit('ice-candidate', {to:peerId, candidate:event.candidate});
+        }
+      };
+
+      peers[peerId] = {pc, dc};
+      return pc;
+    }
+
+    function setupDataChannel(peerId, dc){
+      dc.onopen = ()=>console.log('dc open',peerId);
+      dc.onmessage = (e)=>{
+        try{
+          const parsed = JSON.parse(e.data);
+          if(parsed.type === 'chat') appendChat(parsed.from + ': ' + parsed.text);
+          if(parsed.type === 'wb') applyRemoteStroke(parsed.stroke);
+          if(parsed.type === 'file-meta') addReceivedFileMeta(parsed.meta);
+        }catch(err){ console.log('dc msg',e.data); }
+      };
+      peers[peerId].dc = dc;
+    }
+
+    // ------- Signaling flow (expects server to relay) -------
+    async function handleSignals(sock){
+      sock.on('connect', ()=>{ console.log('connected to signaling'); });
+
+      sock.on('room-peers', async(list)=>{
+        // list: array of peerIds already in room
+        for(const remoteId of list){
+          const pc = createPeerConnection(remoteId, true);
+          const offer = await pc.createOffer();
+          await pc.setLocalDescription(offer);
+          sock.emit('offer', {to:remoteId, sdp:pc.localDescription});
+        }
+      });
+
+      sock.on('offer', async({from, sdp})=>{
+        const pc = createPeerConnection(from, false);
+        await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        sock.emit('answer',{to:from,sdp:pc.localDescription});
+      });
+
+      sock.on('answer', async({from,sdp})=>{
+        const {pc} = peers[from] || {};
+        if(pc) await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+      });
+
+      sock.on('ice-candidate', async({from,candidate})=>{
+        const {pc} = peers[from] || {};
+        if(pc) await pc.addIceCandidate(new RTCIceCandidate(candidate));
+      });
+
+      sock.on('peer-left', ({peerId})=>{
+        removePeer(peerId);
+      });
+    }
+
+    function removePeer(peerId){
+      const p = peers[peerId];
+      if(!p) return;
+      try{ p.pc.close(); }catch(e){}
+      if(p.dc) p.dc.close();
+      const vid = document.getElementById('video_'+peerId);
+      if(vid) vid.remove();
+      delete peers[peerId];
+    }
+
+    // ------- Room join/leave -------
+    joinBtn.addEventListener('click', async (e)=>{
+      e.preventDefault();
+      roomId = roomInput.value.trim();
+      if(!roomId) return alert('Enter room id');
+      await startLocalMedia();
+      const sock = await connectSignaling();
+      if(!sock) return;
+      await handleSignals(sock);
+      // authenticate with token (demo: no token). In prod, send JWT/session token
+      sock.emit('join-room',{room:roomId, displayName:displayNameInput.value});
+      localStatus.textContent = 'Joined ' + roomId;
+    });
+
+    leaveBtn.addEventListener('click', (e)=>{
+      if(socket){ socket.emit('leave-room',{room:roomId}); socket.disconnect(); socket = null; }
+      for(const id of Object.keys(peers)) removePeer(id);
+      if(localStream){ for(const t of localStream.getTracks()) t.stop(); localStream = null; localVideo.srcObject = null; }
+      localStatus.textContent = 'Not connected';
+    });
+
+    // ------- Local controls -------
+    btnToggleAudio.addEventListener('click', ()=>{
+      if(!localStream) return; for(const t of localStream.getAudioTracks()) t.enabled = !t.enabled;
+    });
+    btnToggleVideo.addEventListener('click', ()=>{
+      if(!localStream) return; for(const t of localStream.getVideoTracks()) t.enabled = !t.enabled;
+    });
+
+    btnShareScreen.addEventListener('click', async ()=>{
+      try{
+        const screen = await navigator.mediaDevices.getDisplayMedia({video:true});
+        // replace outgoing track
+        const track = screen.getVideoTracks()[0];
+        for(const pid in peers){
+          const sender = peers[pid].pc.getSenders().find(s=>s.track && s.track.kind === 'video');
+          if(sender) sender.replaceTrack(track);
+        }
+        // show local preview of screen share
+        localVideo.srcObject = screen;
+        track.onended = ()=>{ if(localStream) localVideo.srcObject = localStream; }
+      }catch(err){ console.error('share error',err); }
+    });
+
+    // ------- Chat send uses data channels when available, else via signaling server -----
+    sendChat.addEventListener('click', ()=>sendChatMessage(chatInput.value));
+    chatInput.addEventListener('keydown',(e)=>{ if(e.key==='Enter'){ sendChatMessage(chatInput.value); } });
+
+    function sendChatMessage(text){
+      if(!text) return;
+      appendChat('Me: ' + text);
+      // broadcast via datachannels
+      for(const pid in peers){ const dc = peers[pid].dc; if(dc && dc.readyState === 'open') dc.send(JSON.stringify({type:'chat',from:displayNameInput.value,text})); }
+      // fallback: send to server to forward (not implemented in this front-end demo)
+      chatInput.value = '';
+    }
+
+    // ------- WHITEBOARD -------
+    const ctx = whiteboard.getContext('2d');
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    let drawing = false;
+    let last = {x:0,y:0};
+
+    function getPos(e){
+      const r = whiteboard.getBoundingClientRect();
+      if(e.touches) e = e.touches[0];
+      return {x: (e.clientX - r.left) * (whiteboard.width / r.width), y: (e.clientY - r.top) * (whiteboard.height / r.height)};
+    }
+
+    whiteboard.addEventListener('pointerdown',(e)=>{ drawing=true; last = getPos(e); });
+    window.addEventListener('pointerup',()=>{ drawing=false; });
+    whiteboard.addEventListener('pointermove',(e)=>{ if(!drawing) return; const p = getPos(e); const stroke = {tool:wbTool.value,size:+wbSize.value,from:last,to:p}; drawStroke(stroke); broadcastStroke(stroke); last = p; });
+
+    function drawStroke(s){
+      ctx.globalCompositeOperation = (s.tool==='eraser') ? 'destination-out' : 'source-over';
+      ctx.lineWidth = s.size; ctx.strokeStyle = (s.tool==='eraser') ? 'rgba(0,0,0,1)' : '#000';
+      ctx.beginPath(); ctx.moveTo(s.from.x,s.from.y); ctx.lineTo(s.to.x,s.to.y); ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function broadcastStroke(stroke){
+      for(const pid in peers){ const dc = peers[pid].dc; if(dc && dc.readyState==='open') dc.send(JSON.stringify({type:'wb',stroke})); }
+    }
+    function applyRemoteStroke(stroke){ drawStroke(stroke); }
+
+    wbClear.addEventListener('click', ()=>{ ctx.clearRect(0,0,whiteboard.width,whiteboard.height); for(const pid in peers){ const dc = peers[pid].dc; if(dc && dc.readyState==='open') dc.send(JSON.stringify({type:'wb',stroke:{clear:true}})); } });
+    wbSave.addEventListener('click', ()=>{ const url = whiteboard.toDataURL('image/png'); const a = document.createElement('a'); a.href = url; a.download = 'whiteboard.png'; a.click(); });
+
+    // ------- SIMPLE FILE ENCRYPTION + SEND (demonstration) -------
+    // WARNING: This is a demo. Proper E2EE requires secure key exchange and careful design.
+    async function generateAesKeyFromPassphrase(pass){
+      const enc = new TextEncoder();
+      const salt = enc.encode('static-salt-demo'); // in prod use random salt and share/derive
+      const keyMaterial = await crypto.subtle.importKey('raw', enc.encode(pass), {name:'PBKDF2'}, false, ['deriveKey']);
+      const key = await crypto.subtle.deriveKey({name:'PBKDF2', salt, iterations:100000, hash:'SHA-256'}, keyMaterial, {name:'AES-GCM',length:256}, true, ['encrypt','decrypt']);
+      return key;
+    }
+
+    async function encryptFile(file, key){
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const data = await file.arrayBuffer();
+      const ct = await crypto.subtle.encrypt({name:'AES-GCM', iv}, key, data);
+      return {cipher:new Uint8Array(ct), iv};
+    }
+
+    // UI: choose file
+    btnChooseFile.addEventListener('click', ()=>fileInput.click());
+    fileInput.addEventListener('change', async (e)=>{
+      const f = e.target.files[0]; if(!f) return;
+      appendChat('Encrypting & sending file: ' + f.name);
+      const pass = prompt('Enter passphrase for file encryption (demo). In production use secure key exchange.');
+      const key = await generateAesKeyFromPassphrase(pass || 'demo');
+      const {cipher, iv} = await encryptFile(f, key);
+      // For demo, we won't upload to server; broadcast a small meta message and offer download via data channel if small
+      const meta = {name:f.name,size:f.size,iv:Array.from(iv)};
+      for(const pid in peers){ const dc = peers[pid].dc; if(dc && dc.readyState==='open'){ dc.send(JSON.stringify({type:'file-meta',meta})); // for large files you'd chunk bytes via datachannel binary
+          // here we also send ciphertext as base64 if reasonably small
+          if(cipher.byteLength < 2_000_000){ dc.send(JSON.stringify({type:'file-binary',name:f.name,data:arrayBufferToBase64(cipher)})); }
+        }}
+      addSentFileEntry(meta);
+    });
+
+    function addSentFileEntry(meta){
+      const div = document.createElement('div'); div.textContent = `Sent: ${meta.name} (${meta.size} bytes)`; filesList.appendChild(div);
+    }
+
+    function addReceivedFileMeta(meta){
+      const div = document.createElement('div');
+      div.innerHTML = `<div>Received: ${meta.name} (${meta.size} bytes) <button class="small" data-name="${meta.name}">Download (use passphrase)</button></div>`;
+      const btn = div.querySelector('button');
+      btn.addEventListener('click', async ()=>{
+        const pass = prompt('Enter passphrase to decrypt file');
+        // In demo we require that the peer also sent file-binary via datachannel; real flows should upload file to server and signal availability
+        alert('This demo only supports small files transferred over data channels and requires the sender to have sent the encrypted bytes; implement full file transfer on server for production.');
+      });
+      filesList.appendChild(div);
+    }
+
+    function arrayBufferToBase64(buf){ let binary=''; const bytes=new Uint8Array(buf); const len=bytes.byteLength; for(let i=0;i<len;i++){ binary += String.fromCharCode(bytes[i]); } return btoa(binary); }
+
+    // ------- utility: cleanup before unload -------
+    window.addEventListener('beforeunload', ()=>{ if(socket) socket.disconnect(); for(const id in peers) removePeer(id); });
+
+    // Expose some helpers on window for debugging
+    window.VideoCollab = {startLocalMedia, connectSignaling, peers};
+
+  </script>
+</body>
+</html>
